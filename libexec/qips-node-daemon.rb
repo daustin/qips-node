@@ -17,9 +17,10 @@ DaemonKit::Application.running! do |config|
   config.trap( 'TERM', Proc.new { puts 'Going down' } )
 end
 
-#use right_aws to get a message for a few seconds, then update visibility based on params
+# get the interfaces
 
 sqs = RightAws::SqsGen2.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+s3 = RightAws::S3.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
 
 loop do
   DaemonKit.logger.info "Checking queue #{QUEUE_NAME}..."
@@ -38,60 +39,96 @@ loop do
     next
   end
   
-  # puts m.to_s #debug
-  
   #build WI from message, and then update visibility
   
   wi = WorkItemHelper.decode_message(m.to_s)
-  
-  puts "DEBUG..."
-  puts "Work Item has #{wi.attributes.keys.size} attributes:"
-  
-  wi.attributes.keys.each do |k|
+  q_fin = sqs.queue(wi.reply_queue ||= "#{QUEUE_NAME}_FIN") 
+  #now check validity
+  if ! WorkItemHelper.validate_workitem(wi)
+    #not a valid workitem! reject and pass along to finished queue
+    wi.error = "Not a valid workitem for this node!"
+    DaemonKit.logger.info "Not a valid workitem for this node!"
+    m_fin = WorkItemHelper.encode_workitem(wi)
     
-    puts "#{k} => #{wi[k]}"  
+    puts "Pushing WI onto queue: #{q_fin.name}..."
     
+    q_fin.push(m_fin)
+    
+    #clean up and remove message from initial queue
+    
+    puts "Deleting original message"
+    m.delete
+    next
   end
-  
-  puts "Adjusting SQS timeout: #{wi.params['sqs_timeout'] ||= VIS_DEFAULT}"
-  
+
+  DaemonKit.logger.info "Adjusting SQS timeout: #{wi.params['sqs_timeout'] ||= VIS_DEFAULT}"
   m.visibility = wi.params['sqs_timeout'] ||= VIS_DEFAULT
-  
-  #now we run the command based on the params, and store it's output as wi.text
-  
-  cwd = wi.params['cwd'] ||= Dir.getwd
-  
-  puts "Running Command #{wi.params['command']} in #{cwd}..."
-  
-  Dir.chdir(cwd) do 
-    
-    pipe = IO.popen( wi.params['command'] )
-    if wi.has_attribute?('text')
-      wi.text += pipe.readlines
-    else
-      wi.text = pipe.readlines
+
+  #first lets switch to the directory, clean up, 
+  # and then start downloading the input files 
+
+  Dir.chdir(WORK_DIR) do 
+    # clean directory
+    system "rm -rf *"
+    # now download new files form bucket
+
+    inbucket_name = wi.params['input_bucket'] ||= wi.prev_output_bucket
+    inbucket = s3.bucket(inbucket_name, true)
+    keys = inbucket.keys
+    #now we filter if applicable
+    filter =  wi.params['input_filter'] ||= wi.input_filter ||= '.'
+
+    # infiles keeps track of filenames so we don't upload stuff that's already there
+    infiles = Array.new
+
+    keys.each do |k|
+      if k.to_s.match(filter)
+        DaemonKit.logger.info "Downloading #{k.to_s}..."
+        infiles << File.basename(k.to_s)
+        File.open(File.basename(k.to_s), "w+") do |f| 
+          f.write(k.data)
+        end
+      end
     end
+
+    #now we run the command based on the params, and store it's output in a file
+    DaemonKit.logger.info "Running Command #{wi.params['command']}..."
+
+    pipe = IO.popen( wi.params['command'] )
+
+    File.open("#{wi.params['pid']}_output.txt", "w+") do |f| 
+        f.write(pipe.readlines)
+    end
+
+    #now lets put the files back into the output bucket
+    outbucket_name = wi.params['output_bucket'] ||= inbucket_name
+    Dir.glob("*.*") do |f|
+      unless infiles.include?(f)
+        DaemonKit.logger.info "Uploading #{f}..."
+        key = RightAws::S3::Key.create(outbucket_name, f)
+        key.put(File.open(f).readlines)
+        
+      end
+
+    end
+
+    DaemonKit.logger.info "Finished Uploading..."
+
   end
   
-  #once method is finished, encode work item and place it in QUEUE_NAME_FIN queue
-  
-  puts "Finished running command.  WI now has output: "
-  puts "#{wi.text}"
   
   q_fin = sqs.queue(wi.reply_queue)
   
   m_fin = WorkItemHelper.encode_workitem(wi)
   
-  puts "Pushing WI onto queue: #{q_fin.name}..."
+  DaemonKit.logger.info "Pushing WI onto queue: #{q_fin.name}..."
   
   q_fin.push(m_fin)
   
   #clean up and remove message from initial queue
   
-  puts "Deleting original message"
+  DaemonKit.logger.info "Deleting original message"
   
   m.delete
   
-  DaemonKit.logger.info "Sleeping for #{SLEEP_TIME} seconds..."
-  sleep SLEEP_TIME
 end

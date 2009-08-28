@@ -3,9 +3,14 @@
 # Uncomment below to force your daemon into production mode
 #ENV['DAEMON_ENV'] ||= 'production'
 
- # this tells us where to get the message. don't pull from a queue that we can't accept WI's from
+# this tells us where to get the messages. 
+# don't pull from a queue that we can't accept WI's from
 QUEUE_NAME = 'SEQUEST' 
-VIS_PEEK = 5 # AWS peek visibility timeout
+
+# working directory. this is where all the work's done on this node
+WORK_DIR = '/Users/daustin/scratch'
+
+VIS_PEEK = 0 # AWS peek visibility timeout in seconds
 VIS_DEFAULT =  1800 # visibility timeout if not specified
 SLEEP_TIME = 30 # sleep time in loop
 

@@ -1,4 +1,26 @@
+require 'openwfe'
+
 class WorkItemHelper
+
+  def self.validate_workitem (wi)
+    #work items need to have certain information in their parameters in order for the node to work
+    #this method will check and see
+
+    valid = true
+    
+    #first make sure this has a PID and command
+    if wi.params['pid'].nil? || wi.params['command'].nil?
+      valid = false
+    end
+
+    #then check and make sure it has an input bucket, or a prev_output bucket
+    if wi.params['input_bucket'].nil? && wi.prev_output_bucket.nil?
+      valid = false
+    end
+    return valid
+  end
+
+
 
   def self.decode_message (message)
     
