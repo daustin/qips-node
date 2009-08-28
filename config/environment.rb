@@ -3,12 +3,14 @@
 # Uncomment below to force your daemon into production mode
 #ENV['DAEMON_ENV'] ||= 'production'
 
-AWS_ACCESS_KEY_ID = '11111111111111111111111'
-AWS_SECRET_ACCESS_KEY = '22222222222222222222222222'
-QUEUE_NAME = 'workqueue0'  # this tells us where to get the message. don't pull from a queue that we can't accept WI's from
-VIS_PEEK = 5
-VIS_DEFAULT =  30
-SLEEP_TIME = 30
+ # this tells us where to get the message. don't pull from a queue that we can't accept WI's from
+QUEUE_NAME = 'SEQUEST' 
+VIS_PEEK = 5 # AWS peek visibility timeout
+VIS_DEFAULT =  1800 # visibility timeout if not specified
+SLEEP_TIME = 30 # sleep time in loop
+
+#get AWS creds
+require File.join(File.dirname(__FILE__), 'sqs')
 
 # Boot up
 require File.join(File.dirname(__FILE__), 'boot')
@@ -16,7 +18,7 @@ require File.join(File.dirname(__FILE__), 'boot')
 DaemonKit::Initializer.run do |config|
 
   # The name of the daemon as reported by process monitoring tools
-  config.daemon_name = 'qmgr-node'
+  config.daemon_name = 'qips-node'
 
   # Force the daemon to be killed after X seconds from asking it to
   # config.force_kill_wait = 30

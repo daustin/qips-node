@@ -1,3 +1,12 @@
+
+QIPS-NODE README
+================
+Part of the QIPS, the node is responsible for polling a queue for messages.
+Once it finds a message it'll do a unit of work, replace the message back on 
+the finished queue, and then delete the message.
+
+This was built with the default daemon kit:
+
 DaemonKit README
 ================
 
@@ -8,7 +17,7 @@ Directories
 ===========
 
 bin/
-  qmgr-node - Stub executable to control your daemon with
+  qips-node - Stub executable to control your daemon with
 
 config/
   Environment configuration files
@@ -17,7 +26,7 @@ lib/
   Place for your libraries
 
 libexec/
-  qmgr-node.rb - Your daemon code
+  qips-node.rb - Your daemon code
 
 log/
   Log files based on the environment name
