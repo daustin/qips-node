@@ -1,10 +1,18 @@
-# Change this file to be a wrapper around your daemon code.
+#############################################
+####
+#    David Austin - ITMAT @ UPENN     
+#    Main Looping Daemon Code
+#
+#
+
 require 'rubygems'
 require 'right_aws'
 require 'openwfe'
 require 'openwfe/extras/listeners/sqs_gen2_listeners'
 require 'openwfe/extras/participants/sqs_gen2_participants'
 require 'work_item_helper'
+require 'resource_manager_interface'
+require 's3_interface'
 
 # Do your post daemonization configuration here
 # At minimum you need just the first line (without the block), or a lot
@@ -12,7 +20,7 @@ require 'work_item_helper'
 DaemonKit::Application.running! do |config|
   # Trap signals with blocks or procs
   config.trap( 'INT' ) do
-  #   # do something clever
+    # something creative
   end
   config.trap( 'TERM', Proc.new { puts 'Going down' } )
 end
@@ -21,6 +29,8 @@ end
 
 sqs = RightAws::SqsGen2.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
 s3 = RightAws::S3.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+rmi = ResourceManagerInterface.new(sqs)
+s3h = S3InterfaceHelper.new(s3)
 
 loop do
   DaemonKit.logger.info "Checking queue #{QUEUE_NAME}..."
@@ -35,6 +45,8 @@ loop do
     #exit
     DaemonKit.logger.info "No Messages in SQS."
     DaemonKit.logger.info "Sleeping for #{SLEEP_TIME} seconds..."
+    # notify rmgr idle
+    rmi.send_IDLE
     sleep SLEEP_TIME
     next
   end
@@ -42,24 +54,40 @@ loop do
   #build WI from message, and then update visibility
   
   wi = WorkItemHelper.decode_message(m.to_s)
+
+  #get reply queue
   q_fin = sqs.queue(wi.reply_queue ||= "#{QUEUE_NAME}_FIN") 
+  
   #now check validity
-  if ! WorkItemHelper.validate_workitem(wi)
+  unless WorkItemHelper.validate_workitem(wi)
     #not a valid workitem! reject and pass along to finished queue
     wi.error = "Not a valid workitem for this node!"
     DaemonKit.logger.info "Not a valid workitem for this node!"
     m_fin = WorkItemHelper.encode_workitem(wi)
-    
+   
     puts "Pushing WI onto queue: #{q_fin.name}..."
     
     q_fin.push(m_fin)
     
     #clean up and remove message from initial queue
     
-    puts "Deleting original message"
+    puts "Deleting invalid workitem..."
     m.delete
     next
   end
+
+  #now that we know that it's valid, lets check for SHUTDOWN flag...
+  if wi.params['command'].eql?('SHUTDOWN') && wi.params['instance_id'].eql?(rmi.instance_id)
+    DaemonKit.logger.info "ACK SHUTDOWN MESSAGE"
+    #send ACK shutdown
+    rmi.send_SHUTDOWN
+    #now shut down!
+    break
+    
+  end
+
+  # notify RMGR BUSY
+  rmi.send_busy
 
   DaemonKit.logger.info "Adjusting SQS timeout: #{wi.params['sqs_timeout'] ||= VIS_DEFAULT}"
   m.visibility = wi.params['sqs_timeout'] ||= VIS_DEFAULT
@@ -70,26 +98,51 @@ loop do
   Dir.chdir(WORK_DIR) do 
     # clean directory
     system "rm -rf *"
-    # now download new files form bucket
 
-    inbucket_name = wi.params['input_bucket'] ||= wi.prev_output_bucket
-    inbucket = s3.bucket(inbucket_name, true)
-    keys = inbucket.keys
-    #now we filter if applicable
-    filter =  wi.params['input_filter'] ||= wi.input_filter ||= '.'
+    #
+    # here we're going to look at a few different ways to get files.
+    #    - first we look for an array called input_files, and get them individually
+    #    - then we'll look at input_bucket and then filter on input_filter to get other files
+    #    - lastly, we'll look for previous output bucket, and get those files using filter
+    #
 
-    # infiles keeps track of filenames so we don't upload stuff that's already there
-    infiles = Array.new
+    #First, lets get input files.  they should be in the form: 'mybucket:testdir/sub/file.txt'
 
-    keys.each do |k|
-      if k.to_s.match(filter)
-        DaemonKit.logger.info "Downloading #{k.to_s}..."
-        infiles << File.basename(k.to_s)
-        File.open(File.basename(k.to_s), "w+") do |f| 
-          f.write(k.data)
-        end
+    # infile list is an account of files that were downloaded
+    infile_list = Array.new
+    input_folder = ''
+
+    unless wi.params['input_files'].nil?
+      # now download each file
+      DaemonKit.logger.info "Found Input file list. Downloading..."
+      a = wi.params['input_files'].split
+      #get folder info
+      if a[0].rindex('/').nil?
+        input_folder = a[0]
+      else
+        input_folder = a[0][0..(a[0].rindex('/')-1)]
+      end
+      a.each do |f|
+        infile_list << s3h.download(f)
       end
     end
+
+    #now lets look at the case where an entire folder is specified.  download entire folder, with filter, do the same for previous output
+    unless wi.params['input_folder'].nil?
+      DaemonKit.logger.info "Found input folder. Downloading..."
+      input_folder = wi.params['input_folder']
+      infile_list << s3h.download_folder(wi.params['input_folder'], wi.params['input_filter'], false)
+    end
+
+    # finally lets get previous output folder if all else fails.
+
+    if  wi.params['input_files'].nil? && wi.params['input_folder'].nil? && wi.previous_output_folder
+      DaemontKit.logger.info "Using previous output folder for inputs. Downloading..."
+      input_folder =  wi.previous_output_folder
+      infile_list << s3h.download_folder(wi.previous_output_folder, wi.params['input_filter'], false)
+    end
+
+    DaemonKit.logger.info "Downloaded #{infile_list.size} files."
 
     #now we run the command based on the params, and store it's output in a file
     DaemonKit.logger.info "Running Command #{wi.params['command']}..."
@@ -101,23 +154,13 @@ loop do
     end
 
     #now lets put the files back into the output bucket
-    outbucket_name = wi.params['output_bucket'] ||= inbucket_name
-    Dir.glob("*.*") do |f|
-      unless infiles.include?(f)
-        DaemonKit.logger.info "Uploading #{f}..."
-        key = RightAws::S3::Key.create(outbucket_name, f)
-        key.put(File.open(f).readlines)
-        
-      end
+    output_folder = wi.previous_output_folder = wi.params['output_folder'] ||= input_folder
 
-    end
+    DaemonKit.logger.info "Uploading Output Files..."
 
-    DaemonKit.logger.info "Finished Uploading..."
+    s3h.upload_files(output_folder, infile_list)
 
   end
-  
-  
-  q_fin = sqs.queue(wi.reply_queue)
   
   m_fin = WorkItemHelper.encode_workitem(wi)
   
