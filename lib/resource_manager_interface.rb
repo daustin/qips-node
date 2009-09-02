@@ -14,6 +14,8 @@ META_URL = 'http://169.254.169.254/latest/meta-data/instance-id'
 
 class ResourceManagerInterface 
   
+  attr_reader :instance_id
+
   #calls get
   def initialize(sqs, q)
     

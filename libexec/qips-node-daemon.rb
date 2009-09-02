@@ -87,7 +87,7 @@ loop do
   end
 
   # notify RMGR BUSY
-  rmi.send_busy
+  rmi.send("BUSY",  wi.params['sqs_timeout'])
 
   DaemonKit.logger.info "Adjusting SQS timeout: #{wi.params['sqs_timeout'] ||= VIS_DEFAULT}"
   m.visibility = wi.params['sqs_timeout'] ||= VIS_DEFAULT
@@ -131,7 +131,7 @@ loop do
     unless wi.params['input_folder'].nil?
       DaemonKit.logger.info "Found input folder. Downloading..."
       input_folder = wi.params['input_folder']
-      infile_list << s3h.download_folder(wi.params['input_folder'], wi.params['input_filter'], false)
+      infile_list << s3h.download_folder(wi.params['input_folder'], wi.params['input_filter'])
     end
 
     # finally lets get previous output folder if all else fails.
@@ -139,7 +139,7 @@ loop do
     if  wi.params['input_files'].nil? && wi.params['input_folder'].nil? && wi.previous_output_folder
       DaemontKit.logger.info "Using previous output folder for inputs. Downloading..."
       input_folder =  wi.previous_output_folder
-      infile_list << s3h.download_folder(wi.previous_output_folder, wi.params['input_filter'], false)
+      infile_list << s3h.download_folder(wi.previous_output_folder, wi.params['input_filter'])
     end
 
     DaemonKit.logger.info "Downloaded #{infile_list.size} files."
@@ -158,7 +158,7 @@ loop do
 
     DaemonKit.logger.info "Uploading Output Files..."
 
-    s3h.upload_files(output_folder, infile_list)
+    s3h.upload(output_folder, infile_list)
 
   end
   
