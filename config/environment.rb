@@ -7,6 +7,12 @@
 # don't pull from a queue that we can't accept WI's from
 QUEUE_NAME = 'SEQUEST' 
 
+# this is the name of the status queue to alert rmgr:
+STATUS_QUEUE = 'NODE_STATUS'
+
+# this is the instance_id to use when not an AWS instance
+ALT_INSTANCE_ID = 'daustin_1234'
+
 # working directory. this is where all the work's done on this node
 WORK_DIR = '/Users/daustin/scratch'
 

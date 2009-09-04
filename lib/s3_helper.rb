@@ -16,34 +16,34 @@ class S3Helper
   end
 
   def download (file)
-    return nil unless file.validate_s3
+    return nil unless validate_s3(file)
     fname_array = file.split(':')
     bucket_name = fname_array[0]
     key_name = fname_array[1]
     # downloads a single file onto a local directory, returns basename of file
-    bucket = RightAws::S3::Bucket.create(s3, bucket_name, false)
+    bucket = RightAws::S3::Bucket.create(@s3, bucket_name, false)
     key = RightAws::S3::Key.create(bucket, key_name)
     fname = File.basename(key_name)
-    File.open(fname, "w+") { |file| file.write(key.data) }
+    File.open(fname, "w+") { |f| f.write(key.data) }
     return fname
     
   end
 
-  def download_files (folder, filter=nil)
+  def download_folder (folder, filter=nil)
     flist = Array.new
-    return flist unless folder.validate_s3
+    return flist unless validate_s3(folder)
     #get all keys from folder, filtering out
-    fname_array = file.split(':')
+    fname_array = folder.split(':')
     bucket_name = fname_array[0]
     key_name = fname_array[1].chomp('/') + '/'
-    bucket = RightAws::S3::Bucket.create(s3, bucket_name, false)
+    bucket = RightAws::S3::Bucket.create(@s3, bucket_name, false)
     keys = bucket.keys(:prefix => key_name)
-    filter = '.' if filter.nil?
+    filter = '.+' if filter.nil?
     # download all files from folder, applying filter to keys, returns array of basenames
     keys.each do |k|
       # now we enumerate through each key and download it, if matches
       fname = File.basename(k.to_s)
-      flist << download ("#{bucket_name}:#{key_name}#{fname}") if fname.match(filter)
+      flist << download ("#{bucket_name}:#{k.to_s}") if fname.match(filter)
                            
     end
 
@@ -53,13 +53,13 @@ class S3Helper
 
   def upload (folder, exclude_list=nil)
     # upload all files in cwd to folder, except the ones in exclude list
-    return nil unless folder.validate_s3
-    fname_array = file.split(':')
+    return nil unless validate_s3(folder)
+    fname_array = folder.split(':')
     bucket_name = fname_array[0]
     key_name = fname_array[1].chomp('/') + '/'
     Dir.glob("*.*").each do |f|
       unless exclude_list.nil? && exclude_list.include?(f)
-        key = RightAws::S3::Key.create( bucket = RightAws::S3::Bucket.create(s3, bucket_name, false),
+        key = RightAws::S3::Key.create( bucket = RightAws::S3::Bucket.create(@s3, bucket_name, false),
                                         "#{key_name}#{f}")
         key.data = File.new(f).read
         key.put

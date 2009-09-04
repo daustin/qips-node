@@ -12,7 +12,7 @@ require 'openwfe/extras/listeners/sqs_gen2_listeners'
 require 'openwfe/extras/participants/sqs_gen2_participants'
 require 'work_item_helper'
 require 'resource_manager_interface'
-require 's3_interface'
+require 's3_helper'
 
 # Do your post daemonization configuration here
 # At minimum you need just the first line (without the block), or a lot
@@ -29,8 +29,11 @@ end
 
 sqs = RightAws::SqsGen2.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
 s3 = RightAws::S3.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-rmi = ResourceManagerInterface.new(sqs)
-s3h = S3InterfaceHelper.new(s3)
+rmi = ResourceManagerInterface.new(sqs, STATUS_QUEUE)
+s3h = S3Helper.new(s3)
+
+DaemonKit.logger.info "Using instance id: #{rmi.instance_id}"
+DaemonKit.logger.info "Sending Status Messages to: #{STATUS_QUEUE}"
 
 loop do
   DaemonKit.logger.info "Checking queue #{QUEUE_NAME}..."
@@ -51,6 +54,8 @@ loop do
     next
   end
   
+  DaemonKit.logger.info "Found a message!"
+
   #build WI from message, and then update visibility
   
   wi = WorkItemHelper.decode_message(m.to_s)
@@ -65,32 +70,34 @@ loop do
     DaemonKit.logger.info "Not a valid workitem for this node!"
     m_fin = WorkItemHelper.encode_workitem(wi)
    
-    puts "Pushing WI onto queue: #{q_fin.name}..."
+    DaemonKit.logger.info "Pushing WI onto queue: #{q_fin.name}..."
     
     q_fin.push(m_fin)
     
     #clean up and remove message from initial queue
     
-    puts "Deleting invalid workitem..."
+    DaemonKit.logger.info "Deleting invalid workitem..."
     m.delete
     next
   end
 
   #now that we know that it's valid, lets check for SHUTDOWN flag...
-  if wi.params['command'].eql?('SHUTDOWN') && wi.params['instance_id'].eql?(rmi.instance_id)
+  if wi.params['command'].eql?('SHUTDOWN') && wi.params['instance-id'].eql?(rmi.instance_id)
     DaemonKit.logger.info "ACK SHUTDOWN MESSAGE"
     #send ACK shutdown
     rmi.send_SHUTDOWN
     #now shut down!
+    m.delete
     break
     
   end
 
   # notify RMGR BUSY
-  rmi.send("BUSY",  wi.params['sqs_timeout'])
+  DaemonKit.logger.info "Starting work..."
+  rmi.send("BUSY",  wi.params['sqs-timeout'])
 
-  DaemonKit.logger.info "Adjusting SQS timeout: #{wi.params['sqs_timeout'] ||= VIS_DEFAULT}"
-  m.visibility = wi.params['sqs_timeout'] ||= VIS_DEFAULT
+  DaemonKit.logger.info "Adjusting SQS timeout: #{wi.params['sqs-timeout'] ||= VIS_DEFAULT}"
+  m.visibility = wi.params['sqs-timeout'] ||= VIS_DEFAULT
 
   #first lets switch to the directory, clean up, 
   # and then start downloading the input files 
@@ -101,7 +108,7 @@ loop do
 
     #
     # here we're going to look at a few different ways to get files.
-    #    - first we look for an array called input_files, and get them individually
+    #    - first we look for an array called input-files, and get them individually
     #    - then we'll look at input_bucket and then filter on input_filter to get other files
     #    - lastly, we'll look for previous output bucket, and get those files using filter
     #
@@ -111,11 +118,11 @@ loop do
     # infile list is an account of files that were downloaded
     infile_list = Array.new
     input_folder = ''
-
-    unless wi.params['input_files'].nil?
+ 
+    unless wi.params['input-files'].nil?
       # now download each file
       DaemonKit.logger.info "Found Input file list. Downloading..."
-      a = wi.params['input_files'].split
+      a = wi.params['input-files'].split
       #get folder info
       if a[0].rindex('/').nil?
         input_folder = a[0]
@@ -128,18 +135,18 @@ loop do
     end
 
     #now lets look at the case where an entire folder is specified.  download entire folder, with filter, do the same for previous output
-    unless wi.params['input_folder'].nil?
-      DaemonKit.logger.info "Found input folder. Downloading..."
-      input_folder = wi.params['input_folder']
-      infile_list << s3h.download_folder(wi.params['input_folder'], wi.params['input_filter'])
+    unless wi.params['input-folder'].nil?
+      DaemonKit.logger.info "Found input folder #{wi.params['input-folder']}. Downloading..."
+      input_folder = wi.params['input-folder']
+      infile_list << s3h.download_folder(wi.params['input-folder'], wi.params['input-filter'])
     end
 
     # finally lets get previous output folder if all else fails.
 
-    if  wi.params['input_files'].nil? && wi.params['input_folder'].nil? && wi.previous_output_folder
+    if  wi.params['input-files'].nil? && wi.params['input-folder'].nil? && wi.has_attribute?('previous_output_folder')
       DaemontKit.logger.info "Using previous output folder for inputs. Downloading..."
       input_folder =  wi.previous_output_folder
-      infile_list << s3h.download_folder(wi.previous_output_folder, wi.params['input_filter'])
+      infile_list << s3h.download_folder(wi.previous_output_folder, wi.params['input-filter'])
     end
 
     DaemonKit.logger.info "Downloaded #{infile_list.size} files."
@@ -154,7 +161,7 @@ loop do
     end
 
     #now lets put the files back into the output bucket
-    output_folder = wi.previous_output_folder = wi.params['output_folder'] ||= input_folder
+    output_folder = wi.previous_output_folder = wi.params['output-folder'] ||= input_folder
 
     DaemonKit.logger.info "Uploading Output Files..."
 

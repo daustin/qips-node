@@ -14,11 +14,11 @@ class WorkItemHelper
     end
 
     #then check and make sure it has an input bucket, or a prev_output bucket
-    if wi.params['input_folder'].nil?  &&  wi.params['input_files'].nil? && wi.prev_output_bucket.nil?
+    if wi.params['input-folder'].nil?  &&  wi.params['input-files'].nil? && ! wi.has_attribute?('prev_output_bucket')
       valid = false
     end
 
-    valid = true if (wi.params['command'].nil? && wi.params['instance_id'])
+    valid = true if (wi.params['command'] && wi.params['instance-id'])
 
     return valid
   end

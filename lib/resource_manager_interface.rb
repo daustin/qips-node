@@ -26,8 +26,13 @@ class ResourceManagerInterface
 
   def get_instance_id
     #fetches instance id from AWS meta services
-    resp = Net::HTTP.get_response(URI.parse(META_URL))
-    data = resp.body
+ #   begin
+      # resp = Net::HTTP.get_response(URI.parse(META_URL))
+      # data = resp.body
+
+  #  rescue
+      data = ALT_INSTANCE_ID
+   # end
     return data
     
   end
@@ -35,18 +40,20 @@ class ResourceManagerInterface
 
   def send(string, timeout = nil)
     #puts string and instance ID and timeout and timestamp in a hash
-    h = { :instance_id => @instance_id, :status => @string, 
+    h = { :instance_id => @instance_id, :status => string, 
       :timestamp => Time.new.strftime("%Y%m%d%H%M%S")}
     h['timeout'] = timeout unless timeout.nil?
     #encode in JSON and send off to queue
-    q.push(h.to_json)
+    @queue.push(h.to_json)
 
   end
 
   
   def method_missing(method)
-    if method =~ /send_(.+)/
-      send($_)
+    if method.to_s.match(/send_(.+)/)
+      send($1)
+    else
+      raise NoMethodError
     end
   end
 
