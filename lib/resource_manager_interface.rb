@@ -45,15 +45,15 @@ class ResourceManagerInterface
     
     url += "&timeout=#{timeout}" unless timeout.nil?
     
-    puts "Sending state #{state}..."
-    puts "#{url}"
+    DaemonKit.logger.info "Sending state #{state}..."
+    DaemonKit.logger.info "#{url}"
     
     #send state to rmgr via http request
     begin
       resp = Net::HTTP.get_response(URI.parse(url))
 
     rescue => e
-      puts "Caught Exception while trying to set state: #{e.message}"
+      DaemonKit.logger.error "Caught Exception while trying to set state: #{e.message}"
     end
 
     
