@@ -8,8 +8,8 @@
 require 'rubygems'
 require 'right_aws'
 require 'openwfe'
-require 'openwfe/extras/listeners/sqs_gen2_listeners'
-require 'openwfe/extras/participants/sqs_gen2_participants'
+require 'sqs_gen2_listeners'
+require 'sqs_gen2_participants'
 require 'work_item_helper'
 require 'resource_manager_interface'
 require 's3_helper'
@@ -101,6 +101,8 @@ loop do
 
   #first lets switch to the directory, clean up, 
   # and then start downloading the input files 
+
+  system "mkdir -p #{WORK_DIR}"
 
   Dir.chdir(WORK_DIR) do 
     # clean directory
