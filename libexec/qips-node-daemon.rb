@@ -29,11 +29,11 @@ end
 
 sqs = RightAws::SqsGen2.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
 s3 = RightAws::S3.new(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-rmi = ResourceManagerInterface.new(sqs, STATUS_QUEUE)
+rmi = ResourceManagerInterface.new(sqs, STATUS_URL)
 s3h = S3Helper.new(s3)
 
 DaemonKit.logger.info "Using instance id: #{rmi.instance_id}"
-DaemonKit.logger.info "Sending Status Messages to: #{STATUS_QUEUE}"
+DaemonKit.logger.info "Sending Status Messages to: #{STATUS_URL}"
 
 loop do
   DaemonKit.logger.info "Checking queue #{QUEUE_NAME}..."
@@ -49,7 +49,7 @@ loop do
     DaemonKit.logger.info "No Messages in SQS."
     DaemonKit.logger.info "Sleeping for #{SLEEP_TIME} seconds..."
     # notify rmgr idle
-    rmi.send_IDLE
+    rmi.send_idle
     sleep SLEEP_TIME
     next
   end
@@ -81,20 +81,20 @@ loop do
     next
   end
 
-  #now that we know that it's valid, lets check for SHUTDOWN flag...
-  if wi.params['command'].eql?('SHUTDOWN') && wi.params['instance-id'].eql?(rmi.instance_id)
-    DaemonKit.logger.info "ACK SHUTDOWN MESSAGE"
+  #now that we know that it's valid, lets check for shutdown flag...
+  if wi.params['command'].eql?('shutdown') && wi.params['instance-id'].eql?(rmi.instance_id)
+    DaemonKit.logger.info "ACK shutdown MESSAGE"
     #send ACK shutdown
-    rmi.send_SHUTDOWN
+    rmi.send_shutdown
     #now shut down!
     m.delete
     break
     
   end
 
-  # notify RMGR BUSY
+  # notify RMGR busy
   DaemonKit.logger.info "Starting work..."
-  rmi.send("BUSY",  wi.params['sqs-timeout'])
+  rmi.send("busy",  wi.params['sqs-timeout'])
 
   DaemonKit.logger.info "Adjusting SQS timeout: #{wi.params['sqs-timeout'] ||= VIS_DEFAULT}"
   m.visibility = wi.params['sqs-timeout'] ||= VIS_DEFAULT

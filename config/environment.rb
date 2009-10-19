@@ -7,11 +7,15 @@
 # don't pull from a queue that we can't accept WI's from
 QUEUE_NAME = 'SEQUEST' 
 
-# this is the name of the status queue to alert rmgr:
-STATUS_QUEUE = 'NODE_STATUS'
+# this is the uri for the node to send state updates to rmgr:
+# will add /instance-id?state=idle&timeout=2009...
+STATUS_URL = 'http://localhost:3000/instance/set_state'
+
+# meta url is where node looks to get it's instance ID
+META_URL = 'http://169.254.169.254/latest/meta-data/instance-id'
 
 # this is the instance_id to use when not an AWS instance
-ALT_INSTANCE_ID = 'daustin_1234'
+ALT_INSTANCE_ID = 'i-5af94532'
 
 # working directory. this is where all the work's done on this node
 WORK_DIR = '/Users/daustin/scratch'

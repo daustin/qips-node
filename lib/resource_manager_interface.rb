@@ -1,15 +1,12 @@
 ####################################
 ####
 #    David Austin - ITMAT @ UPENN
-#    Interfaces to a remote resource manager via SQS messages
-#    Messages are encoded with JSON
-#
+#    Interfaces to a remote resource manager via HTTP
+#    
 
 require 'rubygems'
 require 'json'
 require 'net/http'
-
-META_URL = 'http://169.254.169.254/latest/meta-data/instance-id'
 
 
 class ResourceManagerInterface 
@@ -17,35 +14,49 @@ class ResourceManagerInterface
   attr_reader :instance_id
 
   #calls get
-  def initialize(sqs, q)
+  def initialize(sqs, surl)
     
-    @sqs = sqs
-    @queue = sqs.queue(q)
+    #@sqs = sqs
+    #@queue = sqs.queue(q)
+    @status_url = surl
     @instance_id = get_instance_id
   end
 
   def get_instance_id
     #fetches instance id from AWS meta services
- #   begin
-      # resp = Net::HTTP.get_response(URI.parse(META_URL))
-      # data = resp.body
+    begin
+      resp = Net::HTTP.get_response(URI.parse(META_URL))
+      data = resp.body
 
-  #  rescue
+    rescue
       data = ALT_INSTANCE_ID
-   # end
+    end
+    
     return data
     
   end
 
 
-  def send(string, timeout = nil)
-    #puts string and instance ID and timeout and timestamp in a hash
-    h = { :instance_id => @instance_id, :status => string, 
-      :timestamp => Time.new.strftime("%Y%m%d%H%M%S")}
-    h['timeout'] = timeout unless timeout.nil?
-    #encode in JSON and send off to queue
-    @queue.push(h.to_json)
+  def send(state, timeout = nil)
+    
+    timestamp = Time.new.strftime("%Y%m%d%H%M%S")
+    
+    url = "#{@status_url.chomp('/')}/#{@instance_id}?state=#{state}&timestamp=#{timestamp}"
+    
+    url += "&timeout=#{timeout}" unless timeout.nil?
+    
+    puts "Sending state #{state}..."
+    puts "#{url}"
+    
+    #send state to rmgr via http request
+    begin
+      resp = Net::HTTP.get_response(URI.parse(url))
 
+    rescue => e
+      puts "Caught Exception while trying to set state: #{e.message}"
+    end
+
+    
   end
 
   
